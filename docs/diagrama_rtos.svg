@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 720" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="seta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="720" fill="#ffffff"/>
+
+  <text x="500" y="32" text-anchor="middle" font-size="20" font-weight="bold" fill="#111">
+    Detector de Anomalias Acusticas -- Arquitetura RTOS (FreeRTOS / ESP32)
+  </text>
+
+  <!-- INMP441 -->
+  <rect x="40" y="70" width="150" height="60" rx="8" fill="#eef2f7" stroke="#333" stroke-width="1.5"/>
+  <text x="115" y="95" text-anchor="middle" font-size="13" font-weight="bold">INMP441</text>
+  <text x="115" y="112" text-anchor="middle" font-size="11" fill="#555">Microfone I2S</text>
+
+  <!-- Task 1 -->
+  <rect x="40" y="180" width="220" height="130" rx="10" fill="#fdecec" stroke="#c0392b" stroke-width="2"/>
+  <text x="150" y="205" text-anchor="middle" font-size="15" font-weight="bold" fill="#c0392b">Task 1 -- Captura</text>
+  <text x="150" y="223" text-anchor="middle" font-size="11" fill="#333">prioridade 5 (alta)</text>
+  <text x="60" y="245" font-size="11" fill="#333">- Le I2S (1024 amostras/64ms)</text>
+  <text x="60" y="261" font-size="11" fill="#333">- Grava no buffer circular</text>
+  <text x="60" y="277" font-size="11" fill="#333">  (protegido por MUTEX)</text>
+  <text x="60" y="293" font-size="11" fill="#333">- Sinaliza SEMAFORO a cada frame</text>
+
+  <!-- Buffer circular (shared, protected by mutex) -->
+  <rect x="300" y="205" width="170" height="80" rx="8" fill="#fff8e1" stroke="#b8860b" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="385" y="228" text-anchor="middle" font-size="12" font-weight="bold" fill="#7a5c00">Buffer circular</text>
+  <text x="385" y="244" text-anchor="middle" font-size="10" fill="#555">4 slots x 1024 amostras</text>
+  <text x="385" y="260" text-anchor="middle" font-size="10" fill="#555">int16_t[4][1024]</text>
+  <text x="385" y="276" text-anchor="middle" font-size="10" font-weight="bold" fill="#b8860b">protegido por xMutexBuffer</text>
+
+  <!-- Task 2 -->
+  <rect x="40" y="360" width="220" height="150" rx="10" fill="#fff8e1" stroke="#b8860b" stroke-width="2"/>
+  <text x="150" y="385" text-anchor="middle" font-size="15" font-weight="bold" fill="#8a6d00">Task 2 -- Features</text>
+  <text x="150" y="403" text-anchor="middle" font-size="11" fill="#333">prioridade 3 (media)</text>
+  <text x="60" y="425" font-size="11" fill="#333">- Bloqueia em xSemSlotCheio</text>
+  <text x="60" y="441" font-size="11" fill="#333">- Acumula janela de 3s</text>
+  <text x="60" y="457" font-size="11" fill="#333">  (48000 amostras)</text>
+  <text x="60" y="473" font-size="11" fill="#333">- Calcula RMS + Centroid + 13 MFCC</text>
+  <text x="60" y="489" font-size="11" fill="#333">  (FFT propria, dsp.cpp)</text>
+  <text x="60" y="505" font-size="11" fill="#333">- Envia FeatureVector pela FILA</text>
+
+  <!-- Task 3 -->
+  <rect x="40" y="550" width="220" height="150" rx="10" fill="#eafaf1" stroke="#1e8449" stroke-width="2"/>
+  <text x="150" y="575" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e8449">Task 3 -- Deteccao</text>
+  <text x="150" y="593" text-anchor="middle" font-size="11" fill="#333">prioridade 1 (baixa)</text>
+  <text x="60" y="615" font-size="11" fill="#333">- Bloqueia em xQueueReceive</text>
+  <text x="60" y="631" font-size="11" fill="#333">- Gate de silencio (RMS)</text>
+  <text x="60" y="647" font-size="11" fill="#333">- Inferencia SVM (RBF) em C</text>
+  <text x="60" y="663" font-size="11" fill="#333">- LED 3 estados + retencao (1.5s)</text>
+  <text x="60" y="679" font-size="11" fill="#333">- Loga latencia total (Serial)</text>
+
+  <!-- Fila -->
+  <rect x="300" y="395" width="170" height="80" rx="8" fill="#eafaf1" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="385" y="418" text-anchor="middle" font-size="12" font-weight="bold" fill="#145a32">Fila (xQueueCreate)</text>
+  <text x="385" y="434" text-anchor="middle" font-size="10" fill="#555">5 slots x FeatureVector</text>
+  <text x="385" y="450" text-anchor="middle" font-size="10" fill="#555">{rms, centroid, mfcc[13],</text>
+  <text x="385" y="464" text-anchor="middle" font-size="10" fill="#555">timestamp, latencia}</text>
+
+  <!-- LEDs -->
+  <circle cx="600" cy="600" r="22" fill="#e74c3c" stroke="#922b21" stroke-width="2"/>
+  <text x="600" y="605" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">LED</text>
+  <text x="600" y="638" text-anchor="middle" font-size="11" fill="#333">Vermelho</text>
+  <text x="600" y="652" text-anchor="middle" font-size="10" fill="#555">anomalia (masc.)</text>
+  <text x="600" y="666" text-anchor="middle" font-size="10" fill="#555">GPIO32</text>
+
+  <circle cx="700" cy="600" r="22" fill="#2ecc71" stroke="#1e8449" stroke-width="2"/>
+  <text x="700" y="605" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">LED</text>
+  <text x="700" y="638" text-anchor="middle" font-size="11" fill="#333">Verde</text>
+  <text x="700" y="652" text-anchor="middle" font-size="10" fill="#555">normal (fem.)</text>
+  <text x="700" y="666" text-anchor="middle" font-size="10" fill="#555">GPIO2</text>
+
+  <!-- Setas de fluxo principal -->
+  <line x1="115" y1="130" x2="115" y2="178" stroke="#333" stroke-width="2" marker-end="url(#seta)"/>
+
+  <line x1="150" y1="310" x2="150" y2="358" stroke="#333" stroke-width="2" marker-end="url(#seta)"/>
+  <text x="270" y="340" font-size="11" fill="#7a5c00" font-weight="bold">xSemaphoreGive(semSlotCheio)</text>
+  <text x="270" y="354" font-size="10" fill="#555">(T1 -&gt; T2, por frame/64ms)</text>
+
+  <line x1="260" y1="245" x2="298" y2="245" stroke="#333" stroke-width="1.5" marker-end="url(#seta)"/>
+  <line x1="260" y1="435" x2="298" y2="435" stroke="#333" stroke-width="1.5" marker-end="url(#seta)" stroke-dasharray="4,3"/>
+  <text x="280" y="475" font-size="9" fill="#777">(le sob mutex)</text>
+
+  <line x1="150" y1="500" x2="150" y2="548" stroke="#333" stroke-width="2" marker-end="url(#seta)"/>
+  <text x="270" y="530" font-size="11" fill="#145a32" font-weight="bold">xQueueSend(filaFeatures)</text>
+  <text x="270" y="544" font-size="10" fill="#555">(T2 -&gt; T3, a cada 3s)</text>
+
+  <line x1="260" y1="435" x2="298" y2="435" stroke="#333" stroke-width="1.5" marker-end="url(#seta)"/>
+
+  <line x1="260" y1="625" x2="578" y2="605" stroke="#333" stroke-width="1.5" marker-end="url(#seta)"/>
+  <line x1="260" y1="640" x2="678" y2="605" stroke="#333" stroke-width="1.5" marker-end="url(#seta)"/>
+
+  <!-- Legenda -->
+  <rect x="620" y="60" width="340" height="150" rx="8" fill="#fafafa" stroke="#ccc"/>
+  <text x="640" y="82" font-size="13" font-weight="bold" fill="#111">Sincronizacao</text>
+
+  <rect x="640" y="94" width="16" height="16" fill="#fff8e1" stroke="#b8860b"/>
+  <text x="664" y="107" font-size="11" fill="#333">Mutex: protege buffer circular</text>
+  <text x="664" y="120" font-size="10" fill="#666">(exclusao mutua T1 escreve / T2 le)</text>
+
+  <rect x="640" y="132" width="16" height="16" fill="#fdecec" stroke="#c0392b"/>
+  <text x="664" y="145" font-size="11" fill="#333">Semaforo binario T1-&gt;T2</text>
+  <text x="664" y="158" font-size="10" fill="#666">produtor-consumidor, sem polling</text>
+
+  <rect x="640" y="170" width="16" height="16" fill="#eafaf1" stroke="#1e8449"/>
+  <text x="664" y="183" font-size="11" fill="#333">Fila T2-&gt;T3</text>
+  <text x="664" y="196" font-size="10" fill="#666">desacopla produtor/consumidor, buffer=5</text>
+
+  <text x="500" y="712" text-anchor="middle" font-size="10" fill="#888">
+    Threshold anomalia: P(masculino) &gt; 0.65 | Threshold silencio: RMS &lt; 0.01 | Retencao LED: 1.5s
+  </text>
+</svg>

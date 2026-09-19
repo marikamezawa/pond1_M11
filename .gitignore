@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Dados brutos/gerados (grandes, regeneraveis via scripts/01-02) -- NAO
+# incluir no repo. O modelo treinado (.onnx) e os parametros do SVM em C
+# (svm_params.h) SAO entregaveis exigidos e devem ficar versionados.
+data/clips/
+data/dataset.csv
+data/X.npy
+data/y.npy
+data/groups.npy
+data/test_pipeline_resultados.json
+
+model/*.joblib
+
+# Binarios de teste (esp32/host_test) -- so os .cpp fonte sao versionados
+esp32/host_test/test_dsp_host
+esp32/host_test/test_svm_host
