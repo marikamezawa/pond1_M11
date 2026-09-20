@@ -7,18 +7,32 @@
 #include <Arduino.h>
 #include <string.h>
 
-// Buffer de acumulacao da janela de analise (3s = 48000 amostras float).
-// Estatico (nao na stack) -- 48000*4 bytes = 187.5KB, cabe nos ~320KB de
-// heap/BSS tipicamente disponiveis no ESP32-WROOM-32U.
-static float s_janela[DSP_WINDOW_SAMPLES];
-static int s_janela_count = 0;
-static uint32_t s_janela_inicio_ms = 0;
+// Estado do acumulador streaming (dsp_stream_t) -- ~8KB estaticos, bem
+// diferente de guardar a janela de 3s inteira (48000 floats = 187KB, que
+// estourava a DRAM do ESP32). Ver dsp.h para detalhes da API streaming.
+static dsp_stream_t s_stream;
+
+// Janela deslizante: o DSP roda UMA vez por frame; a cada segmento de 1s
+// guardamos so as somas parciais num anel de SEGMENTOS_POR_JANELA segmentos.
+// A janela de 3s = ultimos 3 segmentos, reavaliada a cada segmento fechado.
+static dsp_segmento_t s_segmentos[SEGMENTOS_POR_JANELA];   // anel
+static uint32_t s_seg_inicio_ms[SEGMENTOS_POR_JANELA];     // timestamp de inicio de cada segmento
+static uint32_t s_seg_dsp_us[SEGMENTOS_POR_JANELA];        // CPU do DSP em cada segmento
+static int s_seg_escrita = 0;      // proxima posicao do anel
+static int s_seg_validos = 0;      // segmentos ja preenchidos (satura em SEGMENTOS_POR_JANELA)
+static int s_amostras_no_seg = 0;
+static uint32_t s_seg_atual_inicio_ms = 0;
+static uint32_t s_seg_atual_dsp_us = 0;
+static uint32_t s_dsp_max_frame_us = 0;   // pior caso de um push (deadline: 64ms)
 
 // Task 2 (prioridade media): fica bloqueada no semaforo ate a Task 1
-// sinalizar um novo frame; copia o frame sob mutex; acumula na janela de
-// analise; quando a janela completa DSP_WINDOW_SAMPLES, calcula as
-// features (RMS + centroid + 13 MFCCs) e envia pela fila para a Task 3.
+// sinalizar um novo frame; copia o frame sob mutex; alimenta o acumulador
+// streaming; a cada segmento de 1s fecha as somas parciais e, com 3 segmentos
+// disponiveis, envia um FeatureVector (centroid + 13 MFCCs normalizados por
+// energia, mais o RMS bruto da janela como gatilho de silencio) para a Task 3.
 void task_features(void *pvParameters) {
+    dsp_stream_reset(&s_stream);
+
     while (1) {
         xSemaphoreTake(xSemSlotCheio, portMAX_DELAY);
 
@@ -31,41 +45,70 @@ void task_features(void *pvParameters) {
         frame_timestamp_ms = g_ultimo_frame_timestamp_ms;
         xSemaphoreGive(xMutexBuffer);
 
-        if (s_janela_count == 0) {
-            s_janela_inicio_ms = frame_timestamp_ms;
+        if (s_amostras_no_seg == 0) {
+            s_seg_atual_inicio_ms = frame_timestamp_ms;
         }
 
-        int restante = DSP_WINDOW_SAMPLES - s_janela_count;
-        int n_copiar = (restante < FRAME_SIZE) ? restante : FRAME_SIZE;
-        for (int i = 0; i < n_copiar; i++) {
-            s_janela[s_janela_count + i] = frame_local[i] / 32768.0f;
-        }
-        s_janela_count += n_copiar;
+        int restante = SEGMENTO_SAMPLES - s_amostras_no_seg;
+        int n_processar = (restante < FRAME_SIZE) ? restante : FRAME_SIZE;
 
-        if (s_janela_count >= DSP_WINDOW_SAMPLES) {
-            uint32_t t_inicio = micros();
-            float features[DSP_FEATURE_DIM];
-            dsp_extrair_features(s_janela, DSP_WINDOW_SAMPLES, features);
-            uint32_t latencia_us = micros() - t_inicio;
+        uint32_t t_push = micros();
+        dsp_stream_push(&s_stream, frame_local, n_processar);
+        uint32_t dt_push = micros() - t_push;
+        s_seg_atual_dsp_us += dt_push;
+        if (dt_push > s_dsp_max_frame_us) s_dsp_max_frame_us = dt_push;
+        s_amostras_no_seg += n_processar;
 
-            FeatureVector fv;
-            fv.rms = features[0];
-            fv.spectral_centroid = features[1];
-            memcpy(fv.mfccs, &features[2], sizeof(fv.mfccs));
-            fv.timestamp_captura_ms = s_janela_inicio_ms;
-            fv.latencia_features_us = latencia_us;
+        if (s_amostras_no_seg >= SEGMENTO_SAMPLES) {
+            dsp_stream_fechar_segmento(&s_stream, &s_segmentos[s_seg_escrita]);
+            s_seg_inicio_ms[s_seg_escrita] = s_seg_atual_inicio_ms;
+            s_seg_dsp_us[s_seg_escrita] = s_seg_atual_dsp_us;
+            s_seg_escrita = (s_seg_escrita + 1) % SEGMENTOS_POR_JANELA;
+            if (s_seg_validos < SEGMENTOS_POR_JANELA) s_seg_validos++;
+            s_amostras_no_seg = 0;
+            s_seg_atual_dsp_us = 0;
 
-            // Fila com timeout 0: nao bloqueia -- se a Task 3 estiver
-            // atrasada e a fila cheia, descarta a janela mais antiga em
-            // vez de acumular atraso (audio em tempo real: um FeatureVector
-            // velho e menos util que continuar processando o presente).
-            if (xQueueSend(xFilaFeatures, &fv, 0) != pdTRUE) {
-                FeatureVector descartado;
-                xQueueReceive(xFilaFeatures, &descartado, 0);
-                xQueueSend(xFilaFeatures, &fv, 0);
+            if (s_seg_validos == SEGMENTOS_POR_JANELA) {
+                // s_seg_escrita agora aponta para o segmento MAIS ANTIGO do anel.
+                uint32_t t_inicio = micros();
+                float rms_janela;
+                float features_svm[DSP_FEATURE_DIM];  // [centroid, mfcc_0..12]
+                dsp_segmentos_finalizar(s_segmentos, SEGMENTOS_POR_JANELA, &rms_janela, features_svm);
+                uint32_t latencia_us = micros() - t_inicio;
+                for (int i = 0; i < SEGMENTOS_POR_JANELA; i++) latencia_us += s_seg_dsp_us[i];
+
+                FeatureVector fv;
+                fv.rms = rms_janela;  // so gatilho de silencio, nao entra no SVM
+                fv.spectral_centroid = features_svm[0];
+                memcpy(fv.mfccs, &features_svm[1], sizeof(fv.mfccs));
+                fv.timestamp_captura_ms = s_seg_inicio_ms[s_seg_escrita];
+                fv.latencia_features_us = latencia_us;
+                fv.latencia_frame_max_us = s_dsp_max_frame_us;
+
+                // Fila com timeout 0: nao bloqueia -- se a Task 3 estiver
+                // atrasada e a fila cheia, descarta a janela mais antiga em
+                // vez de acumular atraso (audio em tempo real: um FeatureVector
+                // velho e menos util que continuar processando o presente).
+                if (xQueueSend(xFilaFeatures, &fv, 0) != pdTRUE) {
+                    FeatureVector descartado;
+                    xQueueReceive(xFilaFeatures, &descartado, 0);
+                    xQueueSend(xFilaFeatures, &fv, 0);
+                }
+                s_dsp_max_frame_us = 0;
             }
 
-            s_janela_count = 0;  // proxima janela, sem overlap
+            // O frame de FRAME_SIZE amostras nao alinha com o segmento de 1s:
+            // a sobra vai para o inicio do proximo segmento (nao descarta audio).
+            int sobra = FRAME_SIZE - n_processar;
+            if (sobra > 0) {
+                s_seg_atual_inicio_ms = frame_timestamp_ms;
+                uint32_t t_sobra = micros();
+                dsp_stream_push(&s_stream, frame_local + n_processar, sobra);
+                uint32_t dt_sobra = micros() - t_sobra;
+                s_seg_atual_dsp_us += dt_sobra;
+                if (dt_sobra > s_dsp_max_frame_us) s_dsp_max_frame_us = dt_sobra;
+                s_amostras_no_seg = sobra;
+            }
         }
     }
 }

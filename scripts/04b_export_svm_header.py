@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 04b_export_svm_header.py -- Fallback para a conversao .onnx -> .tflite (ver
-aviso em 04_convert_tflite.py).
+README.md): exporta o SVM como header C.
 
 Extrai os parametros do pipeline (StandardScaler + SVC kernel RBF) treinado
 em 03_train_model.py e gera um header C (model/svm_params.h) com tudo que e
@@ -67,7 +67,7 @@ def main():
         "// NAO editar a mao. Regenere a partir do pipeline treinado.",
         "//",
         "// Fallback para a inferencia SVM em C, ja que SVMClassifier (ai.onnx.ml)",
-        "// nao converte para TFLite -- ver scripts/04_convert_tflite.py.",
+        "// nao converte para TFLite -- ver README.md.",
         "#pragma once",
         "",
         f"#define SVM_N_FEATURES {n_features}",

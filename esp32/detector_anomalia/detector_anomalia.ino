@@ -1,7 +1,7 @@
 // detector_anomalia.ino -- entry point. Cria os mecanismos de
 // sincronizacao FreeRTOS e as 3 tasks (Arduino framework, nao ESP-IDF).
 //
-// Arquitetura (ver planejamento.md para o desenho completo):
+// Arquitetura (ver README.md e docs/diagrama_rtos.svg):
 //   Task 1 (captura, prioridade 5/alta)   -> I2S + buffer circular + mutex
 //   Task 2 (features, prioridade 3/media) -> acumula janela + MFCC + fila
 //   Task 3 (deteccao, prioridade 1/baixa) -> SVM + LED (3 estados + retencao)

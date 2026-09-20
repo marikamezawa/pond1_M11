@@ -43,7 +43,13 @@ void i2s_iniciar() {
 // buffer) levar mais que WATCHDOG_MS, loga um aviso -- em produção isso
 // poderia reiniciar a task; aqui documentamos a deteccao e priorizamos
 // nao mascarar o problema silenciosamente.
-#define WATCHDOG_MS 50
+//
+// IMPORTANTE: ler FRAME_SIZE=1024 amostras via I2S a 16kHz leva no MINIMO
+// 1024/16000 = 64ms fisicamente (e o tempo real de chegada do audio -- o
+// i2s_read bloqueia ate ter amostras suficientes). Um limite de 50ms
+// disparava o watchdog em todo ciclo (falso positivo constante). 100ms da
+// margem real acima do minimo teorico de 64ms.
+#define WATCHDOG_MS 100
 
 void task_captura(void *pvParameters) {
     i2s_iniciar();

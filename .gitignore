@@ -12,9 +12,12 @@ data/X.npy
 data/y.npy
 data/groups.npy
 data/test_pipeline_resultados.json
+data/*_hw.npy
 
 model/*.joblib
 
 # Binarios de teste (esp32/host_test) -- so os .cpp fonte sao versionados
 esp32/host_test/test_dsp_host
 esp32/host_test/test_svm_host
+esp32/host_test/test_dsp_stream_host
+model/holdout/

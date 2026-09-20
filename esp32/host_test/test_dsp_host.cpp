@@ -33,9 +33,11 @@ int main(int argc, char **argv) {
     fread(amostras.data(), sizeof(float), n, f);
     fclose(f);
 
+    float rms_janela;
     float features[DSP_FEATURE_DIM];
-    dsp_extrair_features(amostras.data(), n, features);
+    dsp_extrair_features(amostras.data(), n, &rms_janela, features);
 
+    printf("%.8f\n", rms_janela);
     for (int i = 0; i < DSP_FEATURE_DIM; i++) {
         printf("%.8f\n", features[i]);
     }

@@ -12,9 +12,19 @@ relatorio). Este script e um teste funcional/smoke-test do pipeline
 completo + medicao de latencia, para detectar regressao e documentar
 performance.
 
+Modo --cenario: monta uma linha do tempo com audios REAIS do INMP441
+(data/hardware: silencio, voz feminina e voz masculina alternadas) e passa
+por ela a mesma logica de decisao do firmware (janela de 3s reavaliada a
+cada 1s, gate de silencio, limiar, debounce, estado "incerto", retencao do
+LED). Reporta falsos alarmes, deteccoes e tempo ate o alarme. Para uma
+avaliacao honesta, use um modelo treinado SEM esses arquivos (holdout):
+    python scripts/03_train_model.py --hardware --out-dir model/holdout
+    python scripts/07_test_pipeline.py --cenario --model model/holdout/detector_genero_voz.onnx
+
 Uso:
     python scripts/07_test_pipeline.py --n-por-classe 15
     python scripts/07_test_pipeline.py --manifest meu_teste.csv   # path,label
+    python scripts/07_test_pipeline.py --cenario
 """
 import argparse
 import json
@@ -26,9 +36,11 @@ import numpy as np
 import onnxruntime as ort
 import pandas as pd
 
-from dsp_common import SAMPLE_RATE, WINDOW_SAMPLES, WINDOW_SEC, extrair_features
+import soundfile as sf
 
-THRESHOLD_ANOMALIA = 0.65
+from dsp_common import SAMPLE_RATE, WINDOW_SAMPLES, WINDOW_SEC, calcular_rms, extrair_features
+
+THRESHOLD_ANOMALIA = 0.75
 SILENCIO_RMS = 0.01
 
 
@@ -78,6 +90,96 @@ def testar_arquivo(sess, entrada_nome, caminho_audio: str, label_real: str, thre
     return resultados
 
 
+# ---- Simulacao do firmware (mesmos valores de esp32/detector_anomalia/config.h) ----
+FW_THRESHOLD_SILENCIO = 0.02
+FW_ANOMALIA_JANELAS_SEGUIDAS = 2
+FW_HOLD_S = 1.5
+FW_HOP_S = 1.0
+TRIM_SEC = 0.5
+
+# Arquivos reservados (holdout) em 09_extrair_features_hardware.py
+CENARIO = ["sil_02", "fem_22", "sil_03", "masc_06", "sil_02", "masc_07", "fem_9", "masc_08",
+           "sil_03", "masc_09", "fem_10", "masc_10", "fem_11", "sil_01"]
+
+
+def simular_firmware(sess, entrada_nome, y, threshold):
+    """Roda a logica da Task 3 sobre janelas de 3s a cada 1s. Retorna lista de
+    (t_fim_s, prob, estado) com estado em {silencio, normal, incerto, anomalia}."""
+    saida, seguidas, ultima_voz = [], 0, -1e9
+    passo, janela = int(FW_HOP_S * SAMPLE_RATE), WINDOW_SAMPLES
+    for fim in range(janela, len(y) + 1, passo):
+        w = y[fim - janela:fim]
+        t = fim / SAMPLE_RATE
+        if calcular_rms(w) < FW_THRESHOLD_SILENCIO:
+            seguidas = 0
+            saida.append((t, None, "silencio"))
+            continue
+        prob = float(sess.run(None, {entrada_nome: extrair_features(w, SAMPLE_RATE).reshape(1, -1)})[1][0][1])
+        seguidas = seguidas + 1 if prob > threshold else 0
+        if seguidas >= FW_ANOMALIA_JANELAS_SEGUIDAS:
+            estado = "anomalia"
+        elif seguidas > 0:
+            estado = "incerto"
+        else:
+            estado = "normal"
+        saida.append((t, prob, estado))
+    return saida
+
+
+def rodar_cenario(args):
+    sess = ort.InferenceSession(str(args.model))
+    entrada_nome = sess.get_inputs()[0].name
+    trechos, pos = [], 0
+    partes = []
+    for nome in CENARIO:
+        y, sr = sf.read(Path("data/hardware") / f"{nome}.wav")
+        assert sr == SAMPLE_RATE
+        y = y[int(TRIM_SEC * SAMPLE_RATE):].astype(np.float32)
+        tipo = "masc" if nome.startswith("masc") else ("fem" if nome.startswith("fem") else "sil")
+        trechos.append((nome, tipo, pos / SAMPLE_RATE, (pos + len(y)) / SAMPLE_RATE))
+        pos += len(y)
+        partes.append(y)
+    audio = np.concatenate(partes)
+    sim = simular_firmware(sess, entrada_nome, audio, args.threshold)
+
+    print(f"Cenario: {len(CENARIO)} trechos, {len(audio)/SAMPLE_RATE:.0f}s de audio real do INMP441; "
+          f"modelo {args.model}\n")
+    print(f"{'trecho':<10} {'tipo':<5} {'inicio':>7} {'fim':>7}  resultado")
+    n_masc = n_masc_det = n_fa_seg = n_nao_masc = 0
+    atrasos = []
+    for nome, tipo, ini, fim in trechos:
+        if tipo == "masc":
+            n_masc += 1
+            reds = [t for (t, _, e) in sim if e == "anomalia" and ini <= t <= fim + FW_HOP_S]
+            if reds:
+                n_masc_det += 1
+                atrasos.append(reds[0] - ini)
+                res = f"DETECTADA (alarme {reds[0]-ini:.0f}s apos o inicio)"
+            else:
+                res = "NAO detectada"
+        else:
+            # so avalia janelas totalmente dentro do trecho (sem audio do trecho anterior)
+            dentro = [(t, e) for (t, _, e) in sim if t - WINDOW_SEC >= ini and t <= fim]
+            n_nao_masc += 1
+            fa = [t for (t, e) in dentro if e == "anomalia"]
+            if fa:
+                n_fa_seg += 1
+                res = f"FALSO ALARME em {len(fa)} de {len(dentro)} janelas"
+            else:
+                res = f"ok (0 alarmes em {len(dentro)} janelas)"
+        print(f"{nome:<10} {tipo:<5} {ini:7.1f} {fim:7.1f}  {res}")
+
+    print("\n" + "=" * 60)
+    print(f"Vozes masculinas detectadas: {n_masc_det}/{n_masc}")
+    if atrasos:
+        print(f"Tempo ate o alarme: media={np.mean(atrasos):.1f}s  max={np.max(atrasos):.1f}s")
+    print(f"Trechos femininos/silencio com falso alarme: {n_fa_seg}/{n_nao_masc}")
+    print("=" * 60)
+    return {"masc_detectadas": n_masc_det, "masc_total": n_masc,
+            "tempo_ate_alarme_s": [float(a) for a in atrasos],
+            "trechos_nao_masc_com_falso_alarme": n_fa_seg, "trechos_nao_masc_total": n_nao_masc}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", type=Path, default=Path("model/detector_genero_voz.onnx"))
@@ -88,11 +190,17 @@ def main():
                          help="Quantos arquivos por classe amostrar quando --manifest nao for passado")
     parser.add_argument("--threshold", type=float, default=THRESHOLD_ANOMALIA)
     parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--cenario", action="store_true",
+                         help="Simula o firmware sobre uma linha do tempo de audios reais do INMP441")
     parser.add_argument("--out-json", type=Path, default=Path("data/test_pipeline_resultados.json"))
     args = parser.parse_args()
 
     if not args.model.exists():
         raise SystemExit(f"{args.model} nao encontrado. Rode 03_train_model.py antes.")
+
+    if args.cenario:
+        rodar_cenario(args)
+        return
 
     if args.manifest is not None:
         manifest = pd.read_csv(args.manifest)

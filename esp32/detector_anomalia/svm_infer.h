@@ -3,7 +3,7 @@
 //
 // Motivo de nao usar ONNX/TFLite aqui: o skl2onnx exporta o pipeline usando
 // operadores do dominio ai.onnx.ml (Scaler, SVMClassifier), que nao
-// convertem para TFLite (ver planejamento.md / scripts/04_convert_tflite.py).
+// convertem para TFLite (ver README.md).
 // Como SVM+RBF e so algebra simples (normalizacao + kernel + soma
 // ponderada + sigmoid), reimplementar em C e direto e leve.
 #pragma once

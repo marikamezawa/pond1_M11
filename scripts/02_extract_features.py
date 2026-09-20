@@ -13,11 +13,14 @@ causou erro sistematico quando testamos janelas mais curtas (1.5s) ao vivo.
 Janelas com RMS abaixo de SILENCIO_RMS sao descartadas (o pipeline de
 producao tambem nao roda inferencia em silencio).
 
-Vetor de features (15 dimensoes): [rms, centroid, mfcc_0..mfcc_12]
+Vetor de features (14 dimensoes): [centroid, mfcc_0..mfcc_12]. RMS bruto
+NAO entra mais no classificador (ver docstring de dsp_common.py) -- variava
+demais entre hardwares de captura e enviesava a classificacao; continua
+sendo usado so como gatilho de silencio, aqui e na inferencia.
 Label: 1 = masculino (anomalia), 0 = feminino (normal)
 
 Saida:
-  X.npy      -- (N, 15) features por janela
+  X.npy      -- (N, 14) features por janela
   y.npy      -- (N,) label por janela
   groups.npy -- (N,) indice do clipe de origem de cada janela -- usado no
                 script 03 para dividir treino/teste por CLIPE (nao por

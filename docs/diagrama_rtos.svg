@@ -33,25 +33,26 @@
   <text x="385" y="276" text-anchor="middle" font-size="10" font-weight="bold" fill="#b8860b">protegido por xMutexBuffer</text>
 
   <!-- Task 2 -->
-  <rect x="40" y="360" width="220" height="150" rx="10" fill="#fff8e1" stroke="#b8860b" stroke-width="2"/>
+  <rect x="40" y="360" width="220" height="170" rx="10" fill="#fff8e1" stroke="#b8860b" stroke-width="2"/>
   <text x="150" y="385" text-anchor="middle" font-size="15" font-weight="bold" fill="#8a6d00">Task 2 -- Features</text>
   <text x="150" y="403" text-anchor="middle" font-size="11" fill="#333">prioridade 3 (media)</text>
   <text x="60" y="425" font-size="11" fill="#333">- Bloqueia em xSemSlotCheio</text>
-  <text x="60" y="441" font-size="11" fill="#333">- Acumula janela de 3s</text>
-  <text x="60" y="457" font-size="11" fill="#333">  (48000 amostras)</text>
-  <text x="60" y="473" font-size="11" fill="#333">- Calcula RMS + Centroid + 13 MFCC</text>
-  <text x="60" y="489" font-size="11" fill="#333">  (FFT propria, dsp.cpp)</text>
-  <text x="60" y="505" font-size="11" fill="#333">- Envia FeatureVector pela FILA</text>
+  <text x="60" y="441" font-size="11" fill="#333">- DSP 1x/frame; soma parcial por 1s</text>
+  <text x="60" y="457" font-size="11" fill="#333">  (anel de 3 segmentos)</text>
+  <text x="60" y="473" font-size="11" fill="#333">- Janela 3s deslizante, passo 1s:</text>
+  <text x="60" y="489" font-size="11" fill="#333">  Centroid + 13 MFCC + RMS (dsp.cpp)</text>
+  <text x="60" y="505" font-size="11" fill="#333">- Envia FeatureVector pela FILA (1/s)</text>
 
   <!-- Task 3 -->
-  <rect x="40" y="550" width="220" height="150" rx="10" fill="#eafaf1" stroke="#1e8449" stroke-width="2"/>
+  <rect x="40" y="550" width="220" height="160" rx="10" fill="#eafaf1" stroke="#1e8449" stroke-width="2"/>
   <text x="150" y="575" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e8449">Task 3 -- Deteccao</text>
   <text x="150" y="593" text-anchor="middle" font-size="11" fill="#333">prioridade 1 (baixa)</text>
   <text x="60" y="615" font-size="11" fill="#333">- Bloqueia em xQueueReceive</text>
-  <text x="60" y="631" font-size="11" fill="#333">- Gate de silencio (RMS)</text>
-  <text x="60" y="647" font-size="11" fill="#333">- Inferencia SVM (RBF) em C</text>
-  <text x="60" y="663" font-size="11" fill="#333">- LED 3 estados + retencao (1.5s)</text>
-  <text x="60" y="679" font-size="11" fill="#333">- Loga latencia total (Serial)</text>
+  <text x="60" y="631" font-size="11" fill="#333">- Gate de silencio (RMS &lt; 0.02)</text>
+  <text x="60" y="647" font-size="11" fill="#333">- Inferencia SVM (RBF) em C, P &gt; 0.75</text>
+  <text x="60" y="663" font-size="11" fill="#333">- Debounce 2 janelas; estado incerto</text>
+  <text x="60" y="679" font-size="11" fill="#333">- LED 3 estados + retencao (1.5s)</text>
+  <text x="60" y="695" font-size="11" fill="#333">- Loga latencia (Serial)</text>
 
   <!-- Fila -->
   <rect x="300" y="395" width="170" height="80" rx="8" fill="#eafaf1" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="5,3"/>
@@ -71,7 +72,7 @@
   <text x="700" y="605" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">LED</text>
   <text x="700" y="638" text-anchor="middle" font-size="11" fill="#333">Verde</text>
   <text x="700" y="652" text-anchor="middle" font-size="10" fill="#555">normal (fem.)</text>
-  <text x="700" y="666" text-anchor="middle" font-size="10" fill="#555">GPIO2</text>
+  <text x="700" y="666" text-anchor="middle" font-size="10" fill="#555">GPIO33</text>
 
   <!-- Setas de fluxo principal -->
   <line x1="115" y1="130" x2="115" y2="178" stroke="#333" stroke-width="2" marker-end="url(#seta)"/>
@@ -86,7 +87,7 @@
 
   <line x1="150" y1="500" x2="150" y2="548" stroke="#333" stroke-width="2" marker-end="url(#seta)"/>
   <text x="270" y="530" font-size="11" fill="#145a32" font-weight="bold">xQueueSend(filaFeatures)</text>
-  <text x="270" y="544" font-size="10" fill="#555">(T2 -&gt; T3, a cada 3s)</text>
+  <text x="270" y="544" font-size="10" fill="#555">(T2 -&gt; T3, a cada 1s)</text>
 
   <line x1="260" y1="435" x2="298" y2="435" stroke="#333" stroke-width="1.5" marker-end="url(#seta)"/>
 
