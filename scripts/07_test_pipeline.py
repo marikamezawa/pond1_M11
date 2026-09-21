@@ -15,8 +15,7 @@ performance.
 Modo --cenario: monta uma linha do tempo com audios REAIS do INMP441
 (data/hardware: silencio, voz feminina e voz masculina alternadas) e passa
 por ela a mesma logica de decisao do firmware (janela de 3s reavaliada a
-cada 1s, gate de silencio, limiar, debounce, estado "incerto", retencao do
-LED). Reporta falsos alarmes, deteccoes e tempo ate o alarme. Para uma
+cada 1s, gate de silencio, limiar, debounce simetrico, LED que pisca uma vez por episodio). Reporta falsos alarmes, deteccoes e tempo ate o alarme. Para uma
 avaliacao honesta, use um modelo treinado SEM esses arquivos (holdout):
     python scripts/03_train_model.py --hardware --out-dir model/holdout
     python scripts/07_test_pipeline.py --cenario --model model/holdout/detector_genero_voz.onnx
@@ -93,36 +92,46 @@ def testar_arquivo(sess, entrada_nome, caminho_audio: str, label_real: str, thre
 # ---- Simulacao do firmware (mesmos valores de esp32/detector_anomalia/config.h) ----
 FW_THRESHOLD_SILENCIO = 0.02
 FW_ANOMALIA_JANELAS_SEGUIDAS = 2
-FW_HOLD_S = 1.5
+FW_NORMAL_JANELAS_SEGUIDAS = 3
 FW_HOP_S = 1.0
 TRIM_SEC = 0.5
 
 # Arquivos reservados (holdout) em 09_extrair_features_hardware.py
 CENARIO = ["sil_02", "fem_22", "sil_03", "masc_06", "sil_02", "masc_07", "fem_9", "masc_08",
-           "sil_03", "masc_09", "fem_10", "masc_10", "fem_11", "sil_01"]
+           "sil_03", "masc_09", "fem_10", "masc_10", "fem_11", "masc_15", "sil_01"]
 
 
 def simular_firmware(sess, entrada_nome, y, threshold):
-    """Roda a logica da Task 3 sobre janelas de 3s a cada 1s. Retorna lista de
-    (t_fim_s, prob, estado) com estado em {silencio, normal, incerto, anomalia}."""
-    saida, seguidas, ultima_voz = [], 0, -1e9
+    """Reproduz a logica da Task 3 sobre janelas de 3s a cada 1s (mesmos valores
+    de config.h). Retorna lista de (t_fim_s, prob, estado, pisca): estado em
+    {silencio, normal, incerto, anomalia}; pisca em {None, "verde", "vermelho"}.
+    O LED pisca UMA vez por episodio de fala (ver detect_task.cpp)."""
+    saida = []
+    masc, norm, episodio = 0, 0, "nenhum"
     passo, janela = int(FW_HOP_S * SAMPLE_RATE), WINDOW_SAMPLES
     for fim in range(janela, len(y) + 1, passo):
         w = y[fim - janela:fim]
         t = fim / SAMPLE_RATE
         if calcular_rms(w) < FW_THRESHOLD_SILENCIO:
-            seguidas = 0
-            saida.append((t, None, "silencio"))
+            masc = norm = 0
+            episodio = "nenhum"
+            saida.append((t, None, "silencio", None))
             continue
         prob = float(sess.run(None, {entrada_nome: extrair_features(w, SAMPLE_RATE).reshape(1, -1)})[1][0][1])
-        seguidas = seguidas + 1 if prob > threshold else 0
-        if seguidas >= FW_ANOMALIA_JANELAS_SEGUIDAS:
-            estado = "anomalia"
-        elif seguidas > 0:
-            estado = "incerto"
+        if prob > threshold:
+            masc, norm = masc + 1, 0
         else:
-            estado = "normal"
-        saida.append((t, prob, estado))
+            norm, masc = norm + 1, 0
+        pisca = None
+        if masc >= FW_ANOMALIA_JANELAS_SEGUIDAS and episodio != "anomalia":
+            pisca, episodio = "vermelho", "anomalia"
+        elif norm >= FW_NORMAL_JANELAS_SEGUIDAS:
+            if episodio == "nenhum":
+                pisca, episodio = "verde", "normal"
+            elif episodio == "anomalia":
+                episodio = "normal"   # rearma o vermelho sem piscar verde
+        estado = "anomalia" if masc >= FW_ANOMALIA_JANELAS_SEGUIDAS else ("incerto" if masc > 0 else "normal")
+        saida.append((t, prob, estado, pisca))
     return saida
 
 
@@ -150,23 +159,25 @@ def rodar_cenario(args):
     for nome, tipo, ini, fim in trechos:
         if tipo == "masc":
             n_masc += 1
-            reds = [t for (t, _, e) in sim if e == "anomalia" and ini <= t <= fim + FW_HOP_S]
+            reds = [t for (t, _, e, pi) in sim if pi == "vermelho" and ini <= t <= fim + FW_HOP_S]
+            verdes_errados = [t for (t, _, e, pi) in sim if pi == "verde" and ini <= t <= fim + FW_HOP_S]
             if reds:
                 n_masc_det += 1
                 atrasos.append(reds[0] - ini)
-                res = f"DETECTADA (alarme {reds[0]-ini:.0f}s apos o inicio)"
+                res = f"DETECTADA (pisca vermelho {reds[0]-ini:.0f}s apos o inicio)" + (
+                    f"; pisca VERDE antes/junto ({len(verdes_errados)}x)" if verdes_errados else "")
             else:
                 res = "NAO detectada"
         else:
             # so avalia janelas totalmente dentro do trecho (sem audio do trecho anterior)
-            dentro = [(t, e) for (t, _, e) in sim if t - WINDOW_SEC >= ini and t <= fim]
+            dentro = [(t, pi) for (t, _, e, pi) in sim if t - WINDOW_SEC >= ini and t <= fim]
             n_nao_masc += 1
-            fa = [t for (t, e) in dentro if e == "anomalia"]
+            fa = [t for (t, pi) in dentro if pi == "vermelho"]
             if fa:
                 n_fa_seg += 1
-                res = f"FALSO ALARME em {len(fa)} de {len(dentro)} janelas"
+                res = f"FALSO ALARME (pisca vermelho em {len(fa)} de {len(dentro)} janelas)"
             else:
-                res = f"ok (0 alarmes em {len(dentro)} janelas)"
+                res = f"ok (0 piscas vermelhos em {len(dentro)} janelas)"
         print(f"{nome:<10} {tipo:<5} {ini:7.1f} {fim:7.1f}  {res}")
 
     print("\n" + "=" * 60)

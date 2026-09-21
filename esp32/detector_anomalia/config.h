@@ -26,10 +26,14 @@
 // Janelas de 3s consecutivas acima do threshold antes de acionar o alarme
 // (reduz falso alarme; custo: ~+1s de latencia ate o LED vermelho).
 #define ANOMALIA_JANELAS_SEGUIDAS 2   // janelas de 3s, avaliadas a cada 1s
+// Janelas seguidas para confirmar voz feminina (3, mais que o vermelho: evita
+// piscar o verde no inicio de uma fala masculina, cujas primeiras janelas
+// parciais costumam cair como "normal").
+#define NORMAL_JANELAS_SEGUIDAS   3
 // Calibrado com audio real do INMP441 (data/hardware): silencio ~0.005 e fala
 // em janela de 3s entre ~0.015 e ~0.08 de RMS. 0.05 tratava fala como silencio.
 #define THRESHOLD_SILENCIO   0.02f
-#define LED_HOLD_MS          1500    // retencao do LED apos ultima deteccao de voz
+#define LED_PULSO_MS         1000    // duracao do pisca do LED (uma vez por episodio de fala)
 
 // Vetor de features transferido pela fila (Task 2 -> Task 3)
 typedef struct {

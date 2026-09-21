@@ -35,6 +35,8 @@ def main():
                          help="Peso de cada janela de hardware no treino")
     parser.add_argument("--hw-final", action="store_true",
                          help="Treina com TODO o hardware (sem holdout) -- use no modelo final")
+    parser.add_argument("--svm-c", type=float, default=1.0, help="Parametro C do SVM")
+    parser.add_argument("--svm-gamma", default="0.2", help='gamma do kernel RBF: "scale" ou um numero')
     parser.add_argument("--test-size", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -89,9 +91,10 @@ def main():
         print(f"Hardware: {int(usar_treino.sum())} janelas no treino (peso {args.hw_weight}), "
               f"{0 if X_hw_test is None else len(y_hw_test)} janelas reservadas p/ avaliacao")
 
+    gamma = args.svm_gamma if args.svm_gamma in ("scale", "auto") else float(args.svm_gamma)
     pipeline = Pipeline([
         ("scaler", StandardScaler()),
-        ("svm", SVC(kernel="rbf", C=10.0, gamma="scale", probability=True, random_state=args.seed)),
+        ("svm", SVC(kernel="rbf", C=args.svm_c, gamma=gamma, probability=True, random_state=args.seed)),
     ])
 
     if args.grid_search:

@@ -21,3 +21,4 @@ esp32/host_test/test_dsp_host
 esp32/host_test/test_svm_host
 esp32/host_test/test_dsp_stream_host
 model/holdout/
+model/backup_estavel/

@@ -4,7 +4,7 @@
 // Arquitetura (ver README.md e docs/diagrama_rtos.svg):
 //   Task 1 (captura, prioridade 5/alta)   -> I2S + buffer circular + mutex
 //   Task 2 (features, prioridade 3/media) -> acumula janela + MFCC + fila
-//   Task 3 (deteccao, prioridade 1/baixa) -> SVM + LED (3 estados + retencao)
+//   Task 3 (deteccao, prioridade 1/baixa) -> SVM + LED (pisca 1x por episodio de fala)
 #include "sync.h"
 #include "config.h"
 #include "audio_capture.h"

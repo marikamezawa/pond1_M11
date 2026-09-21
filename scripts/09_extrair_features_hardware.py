@@ -8,8 +8,8 @@ e salva X_hw.npy / y_hw.npy / groups_hw.npy / holdout_hw.npy em data/.
 - Janelas de WINDOW_SEC com passo HOP_SEC (sobrepostas, so pra ter mais amostras
   a partir de gravacoes curtas -- todas do mesmo arquivo ficam no mesmo grupo).
 - holdout_hw = 1 marca arquivos reservados para AVALIAR (nao treinar) o modelo
-  no hardware real: masc_06..10 (segundo locutor masculino, nunca visto no
-  treino) e fem_9, 10, 11 e 22.
+  no hardware real: masc_06..10 (segundo locutor masculino), masc_15 (uma
+  gravacao do terceiro locutor) e fem_9, 10, 11 e 22.
 """
 import re
 from pathlib import Path
@@ -25,7 +25,7 @@ TRIM_SEC = 0.5
 HOP_SEC = 0.5
 SILENCIO_RMS = 0.01
 
-HOLDOUT = {("masc", n) for n in range(6, 11)} | {("fem", n) for n in (9, 10, 11, 22)}
+HOLDOUT = {("masc", n) for n in list(range(6, 11)) + [15]} | {("fem", n) for n in (9, 10, 11, 22)}
 
 
 def main():
