@@ -30,10 +30,24 @@
 // piscar o verde no inicio de uma fala masculina, cujas primeiras janelas
 // parciais costumam cair como "normal").
 #define NORMAL_JANELAS_SEGUIDAS   3
-// Calibrado com audio real do INMP441 (data/hardware): silencio ~0.005 e fala
-// em janela de 3s entre ~0.015 e ~0.08 de RMS. 0.05 tratava fala como silencio.
-#define THRESHOLD_SILENCIO   0.02f
-#define LED_PULSO_MS         1000    // duracao do pisca do LED (uma vez por episodio de fala)
+// Nivel minimo de RMS (janela de 3s) para considerar "voz": abaixo disso e silencio.
+// Silencio real do INMP441 ~0.005; fala ao vivo perto do mic ~0.03-0.3. Quanto maior o
+// valor, mais alto/perto e preciso falar (0.02 aceitava ruido de sala como voz; 0.05
+// cortava fala normal). 0.03 exige falar um pouco mais alto e deixa o ruido como silencio.
+#define THRESHOLD_SILENCIO   0.03f
+// Gate adaptativo: alem do minimo fixo acima, o firmware mede o ruido de fundo
+// da sala (menor RMS de janela nos ultimos PISO_RUIDO_JANELAS segundos) e so
+// considera "voz" o que passa de FATOR_PISO_RUIDO vezes esse piso. Numa sala
+// silenciosa (piso ~0.004) o gate continua no minimo; numa sala barulhenta ele sobe
+// sozinho, senao o ruido de fundo seria classificado como voz feminina.
+#define PISO_RUIDO_JANELAS   60      // historico: 60 janelas = ~60 s
+#define FATOR_PISO_RUIDO     2.5f
+#define PISO_RUIDO_MAX       0.05f   // teto do piso, p/ nao "engolir" fala continua
+// Ao confirmar uma voz, o LED pisca LED_PISCADAS vezes (aceso LED_PULSO_MS, apagado
+// LED_INTERVALO_MS entre uma e outra) -- um evento de pisca por episodio de fala.
+#define LED_PISCADAS         2
+#define LED_PULSO_MS         500     // tempo aceso em cada piscada
+#define LED_INTERVALO_MS     300     // tempo apagado entre as piscadas
 
 // Vetor de features transferido pela fila (Task 2 -> Task 3)
 typedef struct {

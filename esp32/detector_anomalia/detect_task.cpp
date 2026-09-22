@@ -8,8 +8,8 @@
 #include <string.h>
 
 // Episodio de fala: comeca na 1a voz confirmada depois de silencio e termina
-// quando a janela cai abaixo do gate de silencio. O LED pisca UMA vez por
-// episodio (ao confirmar a classe da voz); so volta a piscar se o ambiente
+// quando a janela cai abaixo do gate de silencio. O LED pisca (2 piscadas) UMA vez
+// por episodio (ao confirmar a classe da voz); so volta a piscar se o ambiente
 // ficar em silencio e uma voz surgir de novo. Excecao: voz masculina que
 // aparece no meio de um episodio ja "normal" pisca o vermelho (senao o
 // alarme seria perdido). Depois do vermelho nao pisca verde; se a voz voltar a
@@ -28,17 +28,31 @@ void task_deteccao(void *pvParameters) {
     int masc_seguidas = 0;    // janelas seguidas com P(masc) > THRESHOLD_ANOMALIA
     int normal_seguidas = 0;  // janelas seguidas com P(masc) <= THRESHOLD_ANOMALIA
 
+    // Historico de RMS das ultimas janelas -> piso de ruido de fundo (gate adaptativo).
+    float historico_rms[PISO_RUIDO_JANELAS];
+    int hist_n = 0, hist_i = 0;
+
     while (1) {
         xQueueReceive(xFilaFeatures, &fv, portMAX_DELAY);
         uint32_t agora_ms = millis();
         uint32_t latencia_total_ms = agora_ms - fv.timestamp_captura_ms;
 
-        bool tem_voz = fv.rms >= THRESHOLD_SILENCIO;
+        // Piso de ruido = menor RMS recente; gate = max(minimo fixo, fator * piso).
+        historico_rms[hist_i] = fv.rms;
+        hist_i = (hist_i + 1) % PISO_RUIDO_JANELAS;
+        if (hist_n < PISO_RUIDO_JANELAS) hist_n++;
+        float piso = historico_rms[0];
+        for (int i = 1; i < hist_n; i++) if (historico_rms[i] < piso) piso = historico_rms[i];
+        if (piso > PISO_RUIDO_MAX) piso = PISO_RUIDO_MAX;
+        float gate = FATOR_PISO_RUIDO * piso;
+        if (gate < THRESHOLD_SILENCIO) gate = THRESHOLD_SILENCIO;
+
+        bool tem_voz = fv.rms >= gate;
         if (!tem_voz) {
             masc_seguidas = 0;
             normal_seguidas = 0;
             episodio = EP_NENHUM;   // silencio: a proxima voz e um novo episodio
-            Serial.printf("[deteccao] silencio rms=%.4f | led=0\n", fv.rms);
+            Serial.printf("[deteccao] silencio rms=%.4f gate=%.4f | led=0\n", fv.rms, gate);
             continue;
         }
 
@@ -75,14 +89,14 @@ void task_deteccao(void *pvParameters) {
                                  : (masc_seguidas > 0)                        ? "incerto"
                                                                               : "normal";
         Serial.printf(
-            "[deteccao] %s prob_masc=%.2f seguidas=%d rms=%.4f | lat_features=%lu us "
+            "[deteccao] %s prob_masc=%.2f seguidas=%d rms=%.4f gate=%.4f | lat_features=%lu us "
             "(max_frame=%lu us) | lat_inferencia=%lu us | lat_total=%lu ms | led=%d\n",
-            estado_str, prob_masculino, masc_seguidas, fv.rms,
+            estado_str, prob_masculino, masc_seguidas, fv.rms, gate,
             (unsigned long)fv.latencia_features_us,
             (unsigned long)fv.latencia_frame_max_us,
             (unsigned long)latencia_inferencia_us,
             (unsigned long)latencia_total_ms, (int)pisca);
 
-        led_control_piscar(pisca);   // so pisca em eventos; bloqueia LED_PULSO_MS
+        led_control_piscar(pisca);   // so pisca em eventos; bloqueia durante o pisca
     }
 }

@@ -20,7 +20,10 @@ void led_control_init() {
 void led_control_piscar(led_estado_t estado) {
     if (estado == LED_ESTADO_APAGADO) return;
     int pino = (estado == LED_ESTADO_VERMELHO) ? LED_VERMELHO_PIN : LED_VERDE_PIN;
-    digitalWrite(pino, LED_ON);
-    delay(LED_PULSO_MS);
-    digitalWrite(pino, LED_OFF);
+    for (int i = 0; i < LED_PISCADAS; i++) {
+        digitalWrite(pino, LED_ON);
+        delay(LED_PULSO_MS);
+        digitalWrite(pino, LED_OFF);
+        if (i < LED_PISCADAS - 1) delay(LED_INTERVALO_MS);
+    }
 }

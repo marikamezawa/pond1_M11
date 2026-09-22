@@ -15,7 +15,7 @@ performance.
 Modo --cenario: monta uma linha do tempo com audios REAIS do INMP441
 (data/hardware: silencio, voz feminina e voz masculina alternadas) e passa
 por ela a mesma logica de decisao do firmware (janela de 3s reavaliada a
-cada 1s, gate de silencio, limiar, debounce simetrico, LED que pisca uma vez por episodio). Reporta falsos alarmes, deteccoes e tempo ate o alarme. Para uma
+cada 1s, gate de silencio, limiar, debounce simetrico, LED que pisca 2x uma vez por episodio). Reporta falsos alarmes, deteccoes e tempo ate o alarme. Para uma
 avaliacao honesta, use um modelo treinado SEM esses arquivos (holdout):
     python scripts/03_train_model.py --hardware --out-dir model/holdout
     python scripts/07_test_pipeline.py --cenario --model model/holdout/detector_genero_voz.onnx
@@ -90,7 +90,10 @@ def testar_arquivo(sess, entrada_nome, caminho_audio: str, label_real: str, thre
 
 
 # ---- Simulacao do firmware (mesmos valores de esp32/detector_anomalia/config.h) ----
-FW_THRESHOLD_SILENCIO = 0.02
+FW_THRESHOLD_SILENCIO = 0.03
+FW_PISO_JANELAS = 60
+FW_FATOR_PISO = 2.5
+FW_PISO_MAX = 0.05
 FW_ANOMALIA_JANELAS_SEGUIDAS = 2
 FW_NORMAL_JANELAS_SEGUIDAS = 3
 FW_HOP_S = 1.0
@@ -105,14 +108,19 @@ def simular_firmware(sess, entrada_nome, y, threshold):
     """Reproduz a logica da Task 3 sobre janelas de 3s a cada 1s (mesmos valores
     de config.h). Retorna lista de (t_fim_s, prob, estado, pisca): estado em
     {silencio, normal, incerto, anomalia}; pisca em {None, "verde", "vermelho"}.
-    O LED pisca UMA vez por episodio de fala (ver detect_task.cpp)."""
+    O LED pisca (2 piscadas) uma vez por episodio de fala (ver detect_task.cpp)."""
     saida = []
     masc, norm, episodio = 0, 0, "nenhum"
+    historico = []
     passo, janela = int(FW_HOP_S * SAMPLE_RATE), WINDOW_SAMPLES
     for fim in range(janela, len(y) + 1, passo):
         w = y[fim - janela:fim]
         t = fim / SAMPLE_RATE
-        if calcular_rms(w) < FW_THRESHOLD_SILENCIO:
+        rms = calcular_rms(w)
+        # gate adaptativo (igual ao firmware): max(minimo fixo, fator * piso de ruido)
+        historico = (historico + [rms])[-FW_PISO_JANELAS:]
+        gate = max(FW_THRESHOLD_SILENCIO, FW_FATOR_PISO * min(min(historico), FW_PISO_MAX))
+        if rms < gate:
             masc = norm = 0
             episodio = "nenhum"
             saida.append((t, None, "silencio", None))

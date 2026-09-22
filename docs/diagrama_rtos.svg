@@ -48,10 +48,10 @@
   <text x="150" y="575" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e8449">Task 3 -- Deteccao</text>
   <text x="150" y="593" text-anchor="middle" font-size="11" fill="#333">prioridade 1 (baixa)</text>
   <text x="60" y="615" font-size="11" fill="#333">- Bloqueia em xQueueReceive</text>
-  <text x="60" y="631" font-size="11" fill="#333">- Gate de silencio (RMS &lt; 0.02)</text>
+  <text x="60" y="631" font-size="11" fill="#333">- Gate adaptativo (&gt;= 0.03, 2.5x ruido)</text>
   <text x="60" y="647" font-size="11" fill="#333">- Inferencia SVM (RBF) em C, P &gt; 0.75</text>
   <text x="60" y="663" font-size="11" fill="#333">- Debounce: 2 (masc) / 3 (fem) janelas</text>
-  <text x="60" y="679" font-size="11" fill="#333">- LED pisca 1x (1 s) por fala</text>
+  <text x="60" y="679" font-size="11" fill="#333">- LED pisca 2x por fala (episodio)</text>
   <text x="60" y="695" font-size="11" fill="#333">- Loga latencia (Serial)</text>
 
   <!-- Fila -->
@@ -111,6 +111,6 @@
   <text x="664" y="196" font-size="10" fill="#666">desacopla produtor/consumidor, buffer=5</text>
 
   <text x="500" y="712" text-anchor="middle" font-size="10" fill="#888">
-    Threshold anomalia: P(masculino) &gt; 0.75 | Threshold silencio: RMS &lt; 0.02 | Pisca do LED: 1 s
+    Threshold anomalia: P(masculino) &gt; 0.75 | Gate silencio: adaptativo (min 0.03) | Pisca do LED: 2x 0.5 s
   </text>
 </svg>

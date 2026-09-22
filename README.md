@@ -11,10 +11,10 @@ Aplicação prática: monitoramento de ambientes de acesso restrito (dormitório
 | Situação | LED |
 |---|---|
 | Silêncio | ambos apagados |
-| Voz feminina (normal) | **pisca** o verde uma vez (1 s) |
-| Voz masculina (anomalia) | **pisca** o vermelho uma vez (1 s) |
+| Voz feminina (normal) | **pisca** o verde **2 vezes** (0,5 s cada) |
+| Voz masculina (anomalia) | **pisca** o vermelho **2 vezes** (0,5 s cada) |
 
-O LED **não fica aceso** durante a fala: pisca **uma única vez** quando uma voz é detectada e só volta a piscar depois que o ambiente fica em silêncio e uma voz surge de novo (um novo "episódio de fala"). Isso simplifica a leitura do hardware e reduz a margem de erro, já que o LED indica um evento e não um estado que precisa acompanhar cada janela.
+O LED **não fica aceso** durante a fala: pisca **2 vezes, uma única vez por detecção**, quando uma voz é detectada e só volta a piscar depois que o ambiente fica em silêncio e uma voz surge de novo (um novo "episódio de fala"). Isso simplifica a leitura do hardware e reduz a margem de erro, já que o LED indica um evento e não um estado que precisa acompanhar cada janela.
 
 Diagrama RTOS completo: [`docs/diagrama_rtos.svg`](docs/diagrama_rtos.svg).
 
@@ -75,14 +75,14 @@ Testes com janelas de 1,5 s apresentaram erro sistemático (features instáveis)
 
 ### Regras de decisão (Task 3)
 
-1. Se `RMS da janela < 0,02` → silêncio (não roda o SVM; nenhum LED pisca; o episódio de fala termina).
+1. **Gate de silêncio adaptativo.** O firmware mede o ruído de fundo da sala (menor RMS de janela nos últimos 60 s, limitado a 0,05) e calcula `gate = max(0,03; 2,5 × piso de ruído)`. Se `RMS da janela < gate` → silêncio (não roda o SVM; nenhum LED pisca; o episódio de fala termina). Numa sala silenciosa (piso ≈ 0,004) o gate fica no mínimo de 0,03: é preciso falar um pouco mais alto que antes (o mínimo era 0,02), o que deixa o ruído de sala como silêncio. Numa sala barulhenta ele sobe sozinho; sem isso, o ruído de fundo acima de 0,02 era tratado como voz, classificado como feminina, e o episódio de fala nunca terminava, então o LED parava de piscar.
 2. Senão roda o SVM. Uma janela é "masculina" se `P(masculino) > 0,75`.
 3. **Debounce:** a classe de uma voz só é confirmada após várias janelas consecutivas (avaliadas a cada 1 s) iguais: 2 para masculina, 3 para feminina. Um erro isolado do modelo não dispara nenhum LED. Custo: cerca de +1 s de latência até o vermelho. Enquanto a confirmação não acontece, nenhum LED pisca (o log mostra `incerto` para uma janela masculina ainda não confirmada).
-4. **LED pisca uma vez por episódio de fala.** Um episódio começa na primeira voz confirmada depois de silêncio e termina quando a janela cai abaixo do gate. Ao confirmar a classe, o LED pisca uma vez (1 s, `LED_PULSO_MS`) e não pisca mais até o próximo episódio. Regras:
+4. **LED pisca 2 vezes por episódio de fala.** Um episódio começa na primeira voz confirmada depois de silêncio e termina quando a janela cai abaixo do gate. Ao confirmar a classe, o LED pisca 2 vezes (aceso 0,5 s, apagado 0,3 s entre as piscadas; `LED_PISCADAS`, `LED_PULSO_MS`, `LED_INTERVALO_MS`) e não pisca mais até o próximo episódio. Regras:
    - Voz feminina só é confirmada após **3 janelas seguidas** iguais (`NORMAL_JANELAS_SEGUIDAS`); voz masculina, após **2** (`ANOMALIA_JANELAS_SEGUIDAS`). O verde exige mais janelas porque o início de uma fala masculina costuma cair em janelas parciais classificadas como "normal", e piscar verde nesse momento afirmaria "voz feminina" por engano.
    - Voz masculina que aparece no meio de um episódio já "normal" pisca o vermelho (senão o alarme seria perdido).
    - Depois do vermelho, o LED não pisca verde. Se a voz voltar a ser feminina de forma confirmada, o vermelho é rearmado (uma nova voz masculina volta a piscar), sem piscar verde.
-   - A Task 3 (baixa prioridade) espera o 1 s do pisca; a fila de 5 posições absorve o atraso.
+   - A Task 3 (baixa prioridade) espera o pisca (~1,3 s); a fila de 5 posições absorve o atraso.
 
 ---
 
@@ -145,16 +145,29 @@ Nas versões anteriores (janelas de 3 s disjuntas), janelas isoladas com `prob_m
 
 ### 3.3 Simulação do firmware sobre áudio real (`scripts/07_test_pipeline.py --cenario`)
 
-O script de teste monta uma linha do tempo de **102 s** com gravações reais do INMP441 (silêncio, voz feminina e voz masculina alternadas) e aplica sobre ela a **mesma lógica de decisão do firmware**: janela de 3 s reavaliada a cada 1 s, gate de silêncio (0,02), limiar 0,75, debounce simétrico (2 janelas para masculina, 3 para feminina) e LED que pisca uma vez por episódio de fala. Usa o modelo treinado **sem** os arquivos de teste (`03_train_model.py --hardware --out-dir model/holdout`), para que o resultado seja honesto. Só as janelas totalmente dentro de um trecho feminino/silêncio contam para falso alarme (janelas que ainda contêm áudio do trecho anterior são excluídas).
+O script de teste monta uma linha do tempo de **102 s** com gravações reais do INMP441 (silêncio, voz feminina e voz masculina alternadas) e aplica sobre ela a **mesma lógica de decisão do firmware**: janela de 3 s reavaliada a cada 1 s, gate de silêncio (mínimo 0,03, adaptativo), limiar 0,75, debounce simétrico (2 janelas para masculina, 3 para feminina) e LED que pisca uma vez por episódio de fala. Usa o modelo treinado **sem** os arquivos de teste (`03_train_model.py --hardware --out-dir model/holdout`), para que o resultado seja honesto. Só as janelas totalmente dentro de um trecho feminino/silêncio contam para falso alarme (janelas que ainda contêm áudio do trecho anterior são excluídas).
 
 | Resultado | Valor |
 |---|---|
 | Vozes masculinas detectadas (pisca vermelho) | **5 de 6** (locutor B pelo celular e `masc_15` do terceiro locutor) |
-| Tempo até o pisca vermelho (do início do trecho) | média ≈ 4,7 s, máximo ≈ 10,5 s (`masc_15`, a voz mais fraca; o tempo inclui a janela de 3 s se encher de voz) |
+| Tempo até o pisca vermelho (do início do trecho) | média ≈ 5,3 s, máximo ≈ 13,5 s (`masc_15`, a voz mais fraca, com energia perto do gate; o tempo inclui a janela de 3 s se encher de voz) |
 | Trechos femininos/silêncio com pisca vermelho indevido | **0 de 9** (inclui 27 janelas de fala natural contínua de 30 s) |
-| Pisca verde indevido antes do vermelho | em 3 dos 6 trechos masculinos (`masc_06`, `masc_09`, `masc_15`) |
+| Pisca verde indevido antes do vermelho | nenhum nos 6 trechos masculinos (com o gate em 0,02 ocorria em 3 deles, quando janelas parciais fracas eram classificadas como femininas) |
 
-O verde indevido acontece quando as primeiras janelas de uma fala masculina, ainda parciais, são classificadas como femininas por 3 janelas seguidas. A voz masculina não detectada (`masc_10`) é a gravação mais fraca do conjunto (RMS de janela de ~0,015–0,023, no limite do gate de silêncio de 0,02). O teste é pequeno (uma voz feminina, dois trechos de locutores masculinos no holdout); serve como verificação funcional da lógica, não como estimativa estatística de acurácia em produção.
+A voz masculina não detectada (`masc_10`) é a gravação mais fraca do conjunto (RMS de janela de ~0,015–0,023, abaixo do gate mínimo). O teste é pequeno (uma voz feminina, dois trechos de locutores masculinos no holdout); serve como verificação funcional da lógica, não como estimativa estatística de acurácia em produção.
+
+#### Validação do gate adaptativo (simulação)
+
+Simulei ruído de sala (ruído branco estacionário, não uma gravação real de sala de aula) sobre a mesma lógica do firmware, com 60 s só de ruído e depois fala feminina natural (`fem_22`, RMS de janela médio 0,075) somada ao ruído:
+
+| Ruído de sala (RMS) | Ruído tratado como voz: só o mínimo fixo (0,03) | gate adaptativo | Fala + ruído detectada como voz (gate adaptativo) |
+|---|---|---|---|
+| 0,004 (sala silenciosa) | 0% | 0% | 100% |
+| 0,02 | 0% | 0% | 78% |
+| 0,03 | 48% | **0%** | 28% |
+| 0,05 | 100% | **0%** | 0% |
+
+O gate mínimo de 0,03 (subido de 0,02 a pedido, para exigir voz mais alta) foi escolhido comparando 0,02, 0,03 e 0,04 nas gravações reais: com 0,03, 94% das janelas de fala feminina e 44% das masculinas (a maioria reproduzida por alto-falante, mais fraca que voz ao vivo) ficam acima do gate e o cenário de §3.3 mantém 5 de 6 vozes masculinas; com 0,04 o cenário cai para 3 de 6. Todos os resultados de §3.3 usam 0,03. O custo do gate adaptativo é que, numa sala barulhenta, uma fala com energia próxima do ruído também é cortada: é preciso falar mais alto ou mais perto do microfone (RMS da janela acima de 2,5× o ruído). Voz ao vivo perto do microfone chega a 0,1–0,3, acima do gate mesmo com ruído de 0,03–0,05. O fator 2,5 (`FATOR_PISO_RUIDO` em `config.h`) pode ser reduzido para 2 se a sala for barulhenta e a voz estiver sendo cortada.
 
 ## 4. Latência e performance
 
@@ -195,9 +208,10 @@ Medições reais no ESP32 (Serial Monitor, 115200 baud). Cada linha do log traz 
 4. **Watchdog disparando em todo ciclo.** O limite inicial de 50 ms era menor que o mínimo físico de 64 ms para ler 1024 amostras a 16 kHz; ajustado para 100 ms.
 5. **RMS absoluto não generaliza entre microfones.** O RMS observado no INMP441 ficou acima da distribuição de treino (o notebook havia ficado abaixo). Corrigido normalizando a energia de cada frame e removendo o RMS bruto do classificador (acurácia offline 93% → 94%).
 6. **LEDs com lógica invertida** (ficavam acesos em repouso e apagavam ao detectar). Era fiação ativa-em-LOW (anodo no 3,3 V). Em vez de compensar no código, corrigimos fisicamente a fiação, mantendo a lógica convencional (`HIGH` = aceso). Um GPIO defeituoso (GPIO2) foi trocado pelo GPIO33 depois de um teste isolado de piscar os LEDs, que mostrou que o defeito estava naquela posição da protoboard.
-7. **Limiar de silêncio calibrado com o dataset, não com o hardware.** `0,01` (dataset) nunca detectava silêncio real; depois `0,05` tratava fala como silêncio. Calibrado com áudio do INMP441 (silêncio ≈ 0,005; fala em janela de 3 s entre ≈ 0,015 e 0,08) para `0,02`.
+7. **Limiar de silêncio calibrado com o dataset, não com o hardware.** `0,01` (dataset) nunca detectava silêncio real; depois `0,05` tratava fala como silêncio. Calibrado com áudio do INMP441 (silêncio ≈ 0,005; fala em janela de 3 s entre ≈ 0,015 e 0,08), primeiro `0,02`; depois subido para `0,03` para exigir voz um pouco mais alta e deixar o ruído de sala como silêncio.
 8. **Domain shift dataset → INMP441** (§3.2): o erro mais grave. Corrigido com áudio real do hardware, janelas de fala parcial, limiar de decisão 0,75 e debounce.
 9. **Apito de partida nas gravações.** O I2S produz um bloco constante nos primeiros ~0,3 s. Descartado no firmware de captura e cortado (0,5 s) no pipeline de treino.
+10. **Gate de silêncio fixo falhava em sala barulhenta.** Com ruído de fundo acima de 0,02 (como uma sala de aula), o log mostrava `normal` sem ninguém falando, o ruído era classificado como voz feminina e o episódio de fala nunca terminava, então o LED verde não voltava a piscar. Corrigido com o gate adaptativo (§1, regra 1).
 
 ### Experimentos que não melhoraram (descartados)
 
@@ -205,7 +219,7 @@ Medições reais no ESP32 (Serial Monitor, 115200 baud). Cada linha do log traz 
 - **Simulação do canal do microfone nos clipes do voxpopuli.** Estimamos a resposta em frequência do INMP441 (espectro médio dos áudios de hardware contra o do voxpopuli, equilibrado entre as classes; as duas classes concordavam nos graves e médios, por exemplo −8 dB em 250 Hz) e aplicamos esse filtro, mais ruído de fundo real do microfone, em 2400 clipes de treino (7649 janelas). No holdout de hardware o resultado foi **pior ou igual**: mesmo número de falsos alarmes no limiar 0,75 (3 de 132), mas 10 de 85 vozes masculinas perdidas (contra 5 de 85 sem a augmentation), e um modelo maior (4317 vetores de suporte contra 2472, ~70% mais lento na inferência). Conclusão: a diferença entre voxpopuli e o INMP441 não se resume a um filtro de frequência; dados gravados pelo próprio microfone valem mais que dados sintetizados.
 
 ### Limitações conhecidas
-- **Áudio reproduzido por alto-falante chega fraco ao microfone.** O gate de silêncio (RMS < 0,02) foi calibrado para voz ao vivo perto do microfone. Áudios tocados por um celular ou notebook chegam com bem menos energia (numa simulação, com metade do nível só 17% a 85% das janelas passam do gate, dependendo da voz), então precisam ficar muito perto do microfone para serem detectados; abaixo de RMS ≈ 0,01 o ruído de fundo domina e nem o modelo acerta. Para voz ao vivo, que é o uso real, isso não é problema.
+- **Áudio reproduzido por alto-falante chega fraco ao microfone.** O gate de silêncio (mínimo de RMS 0,03, adaptativo ao ruído da sala) foi calibrado para voz ao vivo perto do microfone. Áudios tocados por um celular ou notebook chegam com bem menos energia (numa simulação com o gate anterior de 0,02, com metade do nível só 17% a 85% das janelas passavam, dependendo da voz; com 0,03 isso é ainda mais restrito), então precisam ficar muito perto do microfone para serem detectados; abaixo de RMS ≈ 0,01 o ruído de fundo domina e nem o modelo acerta. Para voz ao vivo, que é o uso real, isso não é problema.
 - **Pouca variedade de vozes no hardware:** uma voz feminina e três locutores masculinos (dois por reprodução em celular). O desempenho com outras pessoas pode ser pior; mais locutores gravados direto no microfone melhorariam o modelo.
 - **Escopo fechado (binário):** o sistema distingue voz masculina de feminina; música, ruído ou vozes infantis são forçados a uma das duas classes, sem noção de "não sei". O gate de silêncio e o debounce mitigam, mas não eliminam isso.
 - **Trade-off falso alarme vs. detecção:** limiar 0,75 e debounce reduzem falsos alarmes ao custo de perder algumas detecções e de ~1 s de atraso adicional. As janelas deslizantes consecutivas compartilham 2/3 do áudio, então o debounce de 2 janelas é menos independente do que era com janelas disjuntas (um ruído longo pode gerar duas janelas seguidas). É uma escolha consciente para uma aplicação em que alarme falso recorrente desacredita o sistema.
